@@ -1,6 +1,6 @@
 mod prelude;
 
-mod crawl;
+mod api;
 mod parse;
 mod parse_ext_traits;
 mod visitors;
@@ -13,7 +13,8 @@ struct Cred {
     password: String,
 }
 
-fn colorize_page(existing_text: &str) -> anyhow::Result<String> {
+fn colorize_page(title: &str, existing_text: &str) -> anyhow::Result<String> {
+    assert!(title.starts_with("GGST/"));
     let config: visitors::ColorConfig =
         json5::from_str(&std::fs::read_to_string("data/color/ggst.json5").unwrap()).unwrap();
     let mut visitor = visitors::ColorVisitor::new(config);
@@ -32,6 +33,9 @@ use clap::Parser;
 struct Args {
     #[clap(long)]
     mode: String,
+
+    #[clap(long)]
+    apply: bool,
 }
 
 pub async fn stuff() {
@@ -41,9 +45,9 @@ pub async fn stuff() {
     api.set_user_agent("dustloop botto (by moxian)");
     api.set_edit_delay(Some(100));
     api.login(cred.name, cred.password).await.unwrap();
-    // let token = api.get_edit_token().await.unwrap();
+    let token = &api.get_edit_token().await.unwrap();
 
-    let mut all_pages = crawl::all_pages_with_prefix(&api, "GGST/").await;
+    let mut all_pages = api::all_pages_with_prefix(&api, "GGST/").await;
     let skipped: &[&str] = &[];
     all_pages = all_pages
         .into_iter()
@@ -51,18 +55,35 @@ pub async fn stuff() {
         .filter(|p| !skipped.contains(&p.as_str()))
         .collect();
 
-    for title in all_pages {
+    // all_pages = vec!["User:Moxian/Sandbox".into()];
+
+    for title in &all_pages {
         println!("{}", title);
-        let existing_text = crawl::get_existing_page_text(&api, &title).await.unwrap();
+        let (existing_text, oid) = api::get_existing_page_text(&api, title).await.unwrap();
         let existing_text = existing_text.as_str();
         let new_text;
         match args.mode.as_str() {
-            "color" => new_text = colorize_page(existing_text),
+            "color" => new_text = colorize_page(title, existing_text),
             "combo" => new_text = templatize_combo(existing_text),
             _ => panic!("unknown mode {:?}", args.mode),
         };
         let new_text = new_text.unwrap();
         // println!("{}", new_text)
         // return
+        if args.apply {
+            println!("Editing..  {} ", title);
+            api::edit_page(
+                &api,
+                token,
+                title,
+                "Switch clr usage from numbers to letters",
+                true,
+                &new_text,
+                oid,
+            )
+            .await
+            .unwrap();
+            return;
+        }
     }
 }
