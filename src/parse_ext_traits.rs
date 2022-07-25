@@ -1,17 +1,14 @@
 use parse_wiki_text::Node;
 
 pub trait NodeExt {
-    fn as_str(&self) -> &str;
+    fn as_str<'a>(&self, base_text: &'a str) -> &'a str;
     fn range(&self) -> std::ops::Range<usize>;
     fn start(&self) -> usize;
     fn end(&self) -> usize;
 }
 impl NodeExt for parse_wiki_text::Node<'_> {
-    fn as_str(&self) -> &str {
-        match self {
-            parse_wiki_text::Node::Text { value, .. } => value,
-            _ => panic!("{:?} is not a text node", self),
-        }
+    fn as_str<'a>(&self, base_text: &'a str) -> &'a str {
+        &base_text[self.range()]
     }
     fn range(&self) -> std::ops::Range<usize> {
         match self {
