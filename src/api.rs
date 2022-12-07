@@ -1,10 +1,18 @@
 #[derive(Debug, Clone, Copy)]
+pub struct PageId(i64);
+#[derive(Debug, Clone, Copy)]
 pub struct RevId(i64);
+
+pub struct PageMeta {
+    pub title: String,
+    pub revid: RevId,
+    pub pageid: PageId,
+}
 
 pub async fn get_existing_page_text(
     api: &mediawiki::api::Api,
     page: &str,
-) -> Option<(String, RevId)> {
+) -> Option<(PageMeta, String)> {
     let params = api.params_into(&[
         ("action", "parse"),
         ("page", page),
@@ -22,7 +30,16 @@ pub async fn get_existing_page_text(
     }
     let text = res["parse"]["wikitext"].as_str().unwrap().to_string();
     let revid = RevId(res["parse"]["revid"].as_i64().unwrap());
-    Some((text, revid))
+    let pageid = PageId(res["parse"]["pageid"].as_i64().unwrap());
+    let title = res["parse"]["title"].as_str().unwrap().to_string();
+    Some((
+        PageMeta {
+            title,
+            revid,
+            pageid,
+        },
+        text,
+    ))
 }
 
 pub async fn all_pages_with_prefix(api: &mediawiki::api::Api, prefix: &str) -> Vec<String> {
@@ -60,23 +77,28 @@ pub async fn all_pages_with_prefix(api: &mediawiki::api::Api, prefix: &str) -> V
 pub async fn edit_page(
     api: &mediawiki::api::Api,
     token: &str,
-    title: &str,
+    page: &PageMeta,
+    content: &str,
     summary: &str,
     is_minor: bool,
-    content: &str,
-    revid: RevId,
 ) -> anyhow::Result<()> {
-    let params = api.params_into(&[
+    let mut params = api.params_into(&[
         ("action", "edit"),
-        ("title", title),
+        ("title", page.title.as_str()),
         ("text", content),
         ("summary", summary),
-        ("minor", &format!("{}", is_minor)),
-        ("baserevid", &format!("{}", revid.0)),
+        ("baserevid", &format!("{}", page.revid.0)),
         ("token", token), // must be last
     ]);
+    if is_minor {
+        params.extend(api.params_into(&[("minor", &format!("{}", is_minor))]));
+    }
+
     let res = api.post_query_api_json(&params).await.unwrap();
-    println!("result: {:?}", res);
+    // println!("result: {:?}", res);
+
+    // Object({"edit": Object({"contentmodel": String("wikitext"), "nochange": String(""), "pageid": Number(25544), "result": String("Success"), "title": String("GGST/Anji")})})
+    // Object({"edit": Object({"contentmodel": String("wikitext"), "newrevid": Number(304981), "newtimestamp": String("2022-07-25T16:53:31Z"), "oldrevid": Number(303643), "pageid": Number(23251), "result": String("Success"), "title": String("GGST/Anji Mito")})})
 
     let err = &res.as_object().unwrap().get("error");
     if let Some(err) = err {

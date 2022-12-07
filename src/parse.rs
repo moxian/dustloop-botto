@@ -3,6 +3,7 @@ use parse_wiki_text::Node;
 pub fn transform_text(
     existing_text: &str,
     visitor: &mut impl WikiVisitor,
+    skip_errors: bool,
 ) -> anyhow::Result<String> {
     let parsed = parse_wiki_text::Configuration::new(&parse_wiki_text::ConfigurationSource {
         link_trail: "/^([a-z]+)(.*)$/sD",
@@ -53,6 +54,7 @@ pub fn transform_text(
                 parse_wiki_text::WarningMessage::StrayTextInTable,
                 parse_wiki_text::WarningMessage::RepeatedEmptyLine,
                 parse_wiki_text::WarningMessage::InvalidLinkSyntax, // huh??
+                parse_wiki_text::WarningMessage::UnrecognizedTagName, // i'm tired
             ]
             .contains(&w.message)
         })
@@ -62,7 +64,7 @@ pub fn transform_text(
             )
             .to_string();
             if w.message == parse_wiki_text::WarningMessage::UnrecognizedTagName {
-                if [""].contains(&text.as_str()) {
+                if ["", "SlashGordon", "),"].contains(&text.as_str()) {
                     return false;
                 }
                 if text.as_str().starts_with("=") {
@@ -80,11 +82,14 @@ pub fn transform_text(
 
     for w in &warnings {
         let msg = &existing_text[w.start..w.end.min(existing_text.len())];
-        // let snippet = &existing_text[(w.start.max(10) - 10)..(w.end + 10).min(existing_text.len())]
+        let snippet = &existing_text[(w.start.max(10) - 10)..(w.end + 10).min(existing_text.len())];
         let msg = &msg[..msg.len().min(500)];
         println!("{}: {}", w.message, msg);
+        println!(".. around: {}", snippet);
     }
-    assert!(warnings.is_empty());
+    if !skip_errors {
+        assert!(warnings.is_empty());
+    }
 
     // let mut visitor = ColorVisitor::default();
     visitor.set_base_text(existing_text);
@@ -120,6 +125,9 @@ pub trait WikiVisitor {
     fn visit_table_start(&mut self, node: &Node) {}
     fn visit_table_row(&mut self, row: &parse_wiki_text::TableRow) {}
     fn visit_table_end(&mut self, node: &Node) {}
+
+    fn visit_start_tag(&mut self, node: &Node) {}
+    fn visit_heading(&mut self, node: &Node) {}
 }
 
 fn visit_node(visitor: &mut impl WikiVisitor, node: &parse_wiki_text::Node, existing_text: &str) {
@@ -138,16 +146,21 @@ fn visit_node(visitor: &mut impl WikiVisitor, node: &parse_wiki_text::Node, exis
                 visit_nodes(visitor, &param.value, existing_text);
             }
         }
-        Node::Heading { nodes, .. }
-        | Node::Tag { nodes, .. }
+        Node::Heading { nodes, .. } => {
+            visitor.visit_heading(node);
+            visit_nodes(visitor, nodes, existing_text);
+        }
+        Node::Tag { nodes, .. }
         | Node::Link { text: nodes, .. }
         | Node::Preformatted { nodes, .. } => {
             for n in nodes {
                 visit_node(visitor, &n, existing_text)
             }
         }
+        Node::StartTag { .. } => {
+            visitor.visit_start_tag(node);
+        }
         Node::Text { .. }
-        | Node::StartTag { .. }
         | Node::EndTag { .. }
         | Node::Comment { .. }
         | Node::ParagraphBreak { .. }
@@ -203,9 +216,13 @@ fn visit_node(visitor: &mut impl WikiVisitor, node: &parse_wiki_text::Node, exis
         }
         Node::DefinitionList { items, .. } => {
             for it in items {
-                for n in &it.nodes {
-                    visit_node(visitor, &n, existing_text)
-                }
+                visit_nodes(visitor, &it.nodes, existing_text)
+            }
+        }
+        Node::Parameter { default, name, .. } => {
+            visit_nodes(visitor, name, existing_text);
+            if let Some(d) = default {
+                visit_nodes(visitor, d, existing_text);
             }
         }
 

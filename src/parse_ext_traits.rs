@@ -15,7 +15,11 @@ impl NodeExt for parse_wiki_text::Node<'_> {
             Node::Text { start, end, .. }
             | Node::Link { start, end, .. }
             | Node::Template { start, end, .. }
-            | Node::Comment { start, end, .. } => *start..*end,
+            | Node::Comment { start, end, .. }
+            | Node::StartTag { start, end, .. }
+            | Node::Bold { start, end, .. }
+            | Node::EndTag { start, end, .. }
+            | Node::Heading { start, end, .. } => *start..*end,
 
             _ => unimplemented!("Node: {:?}", self),
         }
@@ -71,5 +75,14 @@ pub trait TableRowExt {
 impl TableRowExt for parse_wiki_text::TableRow<'_> {
     fn as_str<'a>(&self, source: &'a str) -> &'a str {
         &source[self.start..self.end]
+    }
+}
+
+pub trait VecNodeExt {
+    fn as_str<'a>(&self, source: &'a str) -> &'a str;
+}
+impl VecNodeExt for Vec<Node<'_>> {
+    fn as_str<'a>(&self, source: &'a str) -> &'a str {
+        &source[self.first().unwrap().start()..self.last().unwrap().end()]
     }
 }
