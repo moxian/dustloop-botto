@@ -74,14 +74,23 @@ struct SkipConfig {
     skip_pages: Vec<String>,
 }
 
+async fn get_edit_token(api: &mut mediawiki::api::Api) -> String {
+    let creds_path = std::path::Path::new("bot-creds.json5");
+    if !creds_path.exists() {
+        println!("{:?} does not exist. Editing will not work", creds_path);
+        return String::new();
+    }
+    let cred: Cred = json5::from_str(&std::fs::read_to_string(creds_path).unwrap()).unwrap();
+    api.login(cred.name, cred.password).await.unwrap();
+    return api.get_edit_token().await.unwrap();
+}
 pub async fn stuff() {
     let args = Args::parse();
-    let cred: Cred = json5::from_str(&std::fs::read_to_string("bot-creds.json5").unwrap()).unwrap();
     let mut api = mediawiki::api::Api::new(WIKI_URL).await.unwrap();
     api.set_user_agent("dustloop botto (by moxian)");
     api.set_edit_delay(Some(100));
-    api.login(cred.name, cred.password).await.unwrap();
-    let token = &api.get_edit_token().await.unwrap();
+    
+    let token = &get_edit_token(&mut api).await;
 
     // all_pages = vec!["User:Moxian/Sandbox".into()];
 
